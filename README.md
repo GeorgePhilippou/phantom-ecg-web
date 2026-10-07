@@ -61,7 +61,11 @@ GitHub Actions runs these checks before publishing only the static app assets.
 The same reader was independently checked against PyEDFlib: all 155,648 samples
 of the owner's 1,024 Hz example agreed within 1.82e-12 µV. The example recording
 is not included. Real browser file selection, window navigation, overview selection,
-ruler clicks and CSV/PNG export were checked locally. Manual Windows browser use
+ruler clicks and CSV/PNG export were checked locally. Safari layout was checked
+before and after isolating the app grid from chart-generated body elements; hiding
+and restoring every recording was checked to preserve overview selection.
+Chart containers are observed for resizing when the browser pane changes width.
+Manual Windows browser use
 and direct EDFbrowser comparison remain acceptance checks.
 
 For a local development preview, serve this directory with any static HTTP server

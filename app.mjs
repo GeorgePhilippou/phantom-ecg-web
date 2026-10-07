@@ -83,7 +83,7 @@ async function render(){for(const id of ['csv','png','json'])$(id).disabled=true
     const bg=$('dark').checked?'#111820':'#fff',text=$('dark').checked?'#e5edf5':'#193743';
     await Plotly.react('overview',traces.map(t=>traceData(t,lower,upper,5000,0,true)),{height:180,paper_bgcolor:bg,plot_bgcolor:bg,font:{color:text},margin:{l:65,r:20,t:10,b:45},showlegend:false,dragmode:'select',selectdirection:'h',xaxis:{...gridAxes([lower,upper]),title:{text:'Recording overview · comparison time (s)'}},yaxis:gridAxes(),shapes:[{type:'rect',x0:state.start,x1:state.end,y0:0,y1:1,yref:'paper',fillcolor:'#d8a34a',opacity:.2,line:{width:0}}],selections:[]},{responsive:true,displaylogo:false,scrollZoom:false,modeBarButtonsToRemove:['zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','lasso2d']});
     const o=$('overview');if(!o._ecgSelect){o.on('plotly_selected',event=>{const range=event?.range?.x;if(range&&range[1]>range[0])setWindow(range[0],range[1]);});o._ecgSelect=true;}
-  }else{Plotly.purge('overview');}
+  }else{Plotly.purge('overview');delete $('overview')._ecgSelect;}
   const details=$('details');details.replaceChildren();for(const t of candidates){const c=t.channel,[a,b]=sampleRange(c,state.start,state.end,t.offset);let min=Infinity,max=-Infinity;for(let i=a;i<b;i++){min=Math.min(min,c.samples[i]);max=Math.max(max,c.samples[i]);}
     const section=make('section');section.append(make('h3',`${t.filename} · ${c.label}`));section.append(make('p',`${c.sampleRate} Hz · ${c.samples.length.toLocaleString()} samples · ${c.duration} s · ${c.unit||'unspecified units'} · shift ${t.offset} s`));section.append(make('p',`Start: ${t.recording.start} (timezone unspecified) · Declared filter: ${c.prefilter||'unspecified'}`));
     if(b>a)section.append(make('p',`Window: ${b-a} samples · min ${min.toPrecision(7)} · max ${max.toPrecision(7)} · peak-to-peak ${(max-min).toPrecision(7)} ${c.unit||''} (stored units)`));for(const w of t.recording.warnings)section.append(make('p',w,'muted'));
@@ -109,4 +109,19 @@ $('reset-ruler').onclick=()=>{$('a').value=state.start;$('b').value=state.end;do
 $('csv').onclick=()=>{try{const chunks=[];let part='';for(const row of csvRows(compatible(),state.start,state.end,$('unit').value)){part+=row;if(part.length>1024*1024){chunks.push(part);part='';}}chunks.push(part);download(new Blob(chunks,{type:'text/csv;charset=utf-8'}),'ecg_comparison.csv');}catch(error){fail(error);}};
 $('json').onclick=()=>{try{download(new Blob([JSON.stringify(metadata(),null,2)],{type:'application/json'}),'ecg_comparison_metadata.json');}catch(error){fail(error);}};
 $('png').onclick=async()=>{const node=make('div');Object.assign(node.style,{position:'absolute',left:'-20000px',width:'1200px'});document.body.append(node);try{const traces=compatible(),measurement=ruler(),layout=layoutFor(traces,measurement);layout.width=1200;layout.uirevision=undefined;layout.annotations.push({xref:'paper',yref:'paper',x:0,y:1.18,xanchor:'left',showarrow:false,text:measurement?`Δt ${measurement.interval_s.toFixed(6)} s · 1/Δt ${measurement.reciprocal_hz===null?'undefined':measurement.reciprocal_hz.toPrecision(6)+' Hz'}`:'Selected comparison window'});layout.margin.t=85;await Plotly.newPlot(node,traces.map((t,i)=>traceData(t,state.start,state.end,60000,state.mode==='Stacked'?i:0)),layout,{staticPlot:true});const data=await Plotly.toImage(node,{format:'png',width:1200,height:layout.height,scale:2});const a=make('a');a.href=data;a.download='ecg_comparison.png';a.click();}catch(error){fail(error);}finally{Plotly.purge(node);node.remove();}};
+// Observe the chart container, since side-panel resizing need not fire window.resize.
+let resizeFrame=0;
+const plotWidths=new WeakMap();
+const plotResizeObserver=new ResizeObserver(entries=>{
+  let changed=false;
+  for(const entry of entries){const width=entry.contentRect.width;
+    if(width>0&&plotWidths.get(entry.target)!==width){plotWidths.set(entry.target,width);changed=true;}}
+  if(!changed)return;
+  cancelAnimationFrame(resizeFrame);
+  resizeFrame=requestAnimationFrame(()=>{
+    for(const id of ['plot','overview']){const node=$(id);
+      if(node.querySelector('.plot-container'))void Plotly.Plots.resize(node).catch(fail);}
+  });
+});
+for(const id of ['plot','overview'])plotResizeObserver.observe($(id));
 requestRender();
