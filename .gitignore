@@ -1,0 +1,8 @@
+*.edf
+*.EDF
+*.bdf
+*.BDF
+_site/
+node_modules/
+.DS_Store
+exports/
