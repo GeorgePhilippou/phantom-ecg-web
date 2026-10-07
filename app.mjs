@@ -1,5 +1,7 @@
-import {voltageFactor,bounds,fitWindow,sampleRange,envelopeIndices,intervalMetrics,csvRows} from './edf.mjs';
-const $=id=>document.getElementById(id), version='browser-1.0.0';
+import {voltageFactor,bounds,fitWindow,sampleRange,intervalMetrics,csvRows} from './edf.mjs';
+import {createWaveformCache,displayPointBudget} from './display.mjs';
+const waveformPoints=createWaveformCache();
+const $=id=>document.getElementById(id), version='browser-1.1.0';
 const state={files:[],start:0,end:10,mode:'Overlay',errors:[],generation:0,busy:false};
 const light=['#167a95','#e47932','#8d55b0','#21916a','#cb4f6c','#80752b','#5278cf','#af602e'];
 const night=['#64d4e8','#ffb36b','#c39af0','#65dbad','#ff8eaa','#ddd176','#91b4ff','#e7af83'];
@@ -48,19 +50,21 @@ function demo(){const rate=1024,duration=20,samples=new Float64Array(rate*durati
   state.files.push({id:`demo-${++serial}`,filename:'Synthetic ECG · 1 Hz (not experimental data)',bytes:0,digest:null,recording:{start:'Synthetic',firstRecordOnset:0,channels:[{label:'Synthetic ECG',unit:'mV',sampleRate:rate,duration,samples,prefilter:'None',limitSamples:0,physicalMin:-2,physicalMax:2}],annotations:[],warnings:['Synthetic demonstration only; no electrode-performance conclusions.']},channelIndex:0,offset:0,visible:true,colour:serial});fileControls();units();setWindow(0,10);notice('Synthetic 1 Hz ECG. Open your own EDF to inspect experimental data.');}
 function ruler(){return $('ruler').checked?intervalMetrics($('a').valueAsNumber,$('b').valueAsNumber):null;}
 function gridAxes(range){const dark=$('dark').checked;return {range,showgrid:$('grid').checked,gridcolor:dark?'#344353':'#e3ebef',zeroline:$('grid').checked,zerolinecolor:dark?'#526478':'#cbd6dc',automargin:true};}
-function traceData(t,start,end,max,row=0,overview=false){const c=t.channel,[a,b]=sampleRange(c,start,end,t.offset),indices=envelopeIndices(c.samples,a,b,max),factor=voltageFactor(c.unit,$('unit').value);
-  return {x:indices.map(i=>i/c.sampleRate+t.offset),y:indices.map(i=>c.samples[i]*factor),name:safe(`${t.filename} · ${c.label}`),type:'scatter',mode:'lines+markers',marker:{size:5,opacity:0},selected:{marker:{opacity:0}},unselected:{marker:{opacity:0}},line:{color:colour(t),width:overview?.8:1.3},xaxis:row?'x'+(row+1):'x',yaxis:row?'y'+(row+1):'y',hovertemplate:`%{x:.6f} s<br>%{y:.6f} ${safe($('unit').value)}<extra>%{fullData.name}</extra>`};}
-function layoutFor(traces,measurement){const dark=$('dark').checked,bg=dark?'#111820':'#fff',text=dark?'#e5edf5':'#193743',stacked=state.mode==='Stacked',n=Math.max(1,traces.length),height=stacked?Math.max(570,n*250):600;
+function traceData(t,start,end,max,row=0,overview=false){const {x,y}=waveformPoints(t.channel,start,end,t.offset,$('unit').value,max);
+  return {x,y,name:safe(`${t.filename} · ${t.channel.label}`),type:'scatter',mode:'lines',line:{color:colour(t),width:overview?.8:1.3},xaxis:row?'x'+(row+1):'x',yaxis:row?'y'+(row+1):'y',hovertemplate:`%{x:.6f} s<br>%{y:.6f} ${safe($('unit').value)}<extra>%{fullData.name}</extra>`};}
+function layoutFor(traces,measurement,viewRange=[state.start,state.end]){const dark=$('dark').checked,bg=dark?'#111820':'#fff',text=dark?'#e5edf5':'#193743',stacked=state.mode==='Stacked',n=Math.max(1,traces.length),height=stacked?Math.max(570,n*250):600;
   const layout={height,paper_bgcolor:bg,plot_bgcolor:bg,font:{color:text,family:'system-ui, Segoe UI, sans-serif'},margin:{l:65,r:20,t:45,b:55},dragmode:'zoom',hovermode:'closest',showlegend:!stacked,legend:{orientation:'h',y:1.1},uirevision:`${state.generation}-${state.mode}-${$('unit').value}-${$('fixed').checked}-${$('ymin').value}-${$('ymax').value}`,shapes:[],annotations:[]};
-  for(let row=0;row<(stacked?n:1);row++){const suffix=row?row+1:'',axis='y'+suffix,xaxis='x'+suffix,key='yaxis'+suffix,xkey='xaxis'+suffix;layout[xkey]={...gridAxes([state.start,state.end]),anchor:axis,title:row===(stacked?n-1:0)?{text:'Comparison time (s)'}:undefined,matches:row?'x':undefined};layout[key]={...gridAxes($('fixed').checked?[$('ymin').valueAsNumber,$('ymax').valueAsNumber]:undefined),anchor:xaxis,title:{text:`Amplitude (${$('unit').value||'unspecified'})`},domain:stacked?[1-(row+1)/n+.06/n,1-row/n-.04/n]:[0,1]};
+  for(let row=0;row<(stacked?n:1);row++){const suffix=row?row+1:'',axis='y'+suffix,xaxis='x'+suffix,key='yaxis'+suffix,xkey='xaxis'+suffix;layout[xkey]={...gridAxes(viewRange),anchor:axis,title:row===(stacked?n-1:0)?{text:'Comparison time (s)'}:undefined,matches:row?'x':undefined};layout[key]={...gridAxes($('fixed').checked?[$('ymin').valueAsNumber,$('ymax').valueAsNumber]:undefined),anchor:xaxis,title:{text:`Amplitude (${$('unit').value||'unspecified'})`},domain:stacked?[1-(row+1)/n+.06/n,1-row/n-.04/n]:[0,1]};
     if(stacked)layout.annotations.push({x:0,y:layout[key].domain[1],xref:'paper',yref:'paper',text:safe(`${traces[row]?.filename||''} · ${traces[row]?.channel.label||''}`),showarrow:false,xanchor:'left',yanchor:'bottom',font:{size:12,color:text}});
     if(measurement)for(const [name,x,color] of [['A',measurement.a_s,dark?'#ff8eaa':'#b54465'],['B',measurement.b_s,dark?'#c39af0':'#6a4ab4']])if(x>=state.start&&x<=state.end){layout.shapes.push({type:'line',x0:x,x1:x,y0:0,y1:1,xref:xaxis,yref:axis+' domain',line:{color,width:1.7,dash:'dash'}});layout.annotations.push({x,y:1,xref:xaxis,yref:axis+' domain',text:name,showarrow:false,yanchor:'bottom',font:{color}});}
   }return layout;
 }
-const config=()=>({responsive:true,displaylogo:false,scrollZoom:$('wheel').checked,modeBarButtonsToRemove:['select2d','lasso2d'],toImageButtonOptions:{filename:'ecg_comparison',scale:2}});
-let rendering=false,pending=false;
-function requestRender(){pending=true;if(!rendering)void renderLoop();}
-async function renderLoop(){rendering=true;try{while(pending){pending=false;await render();}}catch(error){fail(error);}finally{rendering=false;}}
+function resetPlotZoom(){state.zoom=null;state.generation++;requestRender();}
+const config=()=>({responsive:true,displaylogo:false,doubleClick:false,scrollZoom:$('wheel').checked,modeBarButtonsToRemove:['select2d','lasso2d','resetScale2d'],modeBarButtonsToAdd:[{name:'Reset axes',icon:Plotly.Icons.home,click:resetPlotZoom}],toImageButtonOptions:{filename:'ecg_comparison',scale:2}});
+let rendering=false,pending=false,renderTimer=0;
+let mainKey='',overviewKey='',overviewWindow='',detailsKey='';
+function requestRender(){pending=true;clearTimeout(renderTimer);renderTimer=setTimeout(()=>{if(!rendering)void renderLoop();},40);}
+async function renderLoop(){rendering=true;try{while(pending){pending=false;const started=performance.now();$('plot').dataset.rendering='true';await render();$('plot').dataset.renderMs=(performance.now()-started).toFixed(1);$('plot').dataset.rendering='false';}}catch(error){fail(error);}finally{rendering=false;$('plot').dataset.rendering='false';}}
 async function render(){for(const id of ['csv','png','json'])$(id).disabled=true;document.body.classList.toggle('dark',$('dark').checked);$('scale').hidden=!$('fixed').checked;$('ruler-controls').hidden=!$('ruler').checked;
   const candidates=visible(),traces=compatible(),excluded=candidates.filter(t=>!traces.some(x=>x.id===t.id));const messages=[...state.errors,...excluded.map(t=>`${t.filename}: incompatible amplitude units (${t.channel.unit||'unspecified'}); excluded from this comparison.`)];
   $('errors').replaceChildren(...messages.map(m=>make('p',m)));
@@ -73,18 +77,46 @@ async function render(){for(const id of ['csv','png','json'])$(id).disabled=true
     $('measurement').textContent=`Time ruler · A ${measurement.a_s.toFixed(6)} s · B ${measurement.b_s.toFixed(6)} s · Δt ${measurement.interval_s.toFixed(6)} s (${measurement.interval_ms.toFixed(3)} ms) · 1/Δt ${frequency}`;
     if(measurement.a_s<state.start||measurement.a_s>state.end||measurement.b_s<state.start||measurement.b_s>state.end)$('measurement').append(make('small',' — Cursor outside the selected window; navigate or reset the ruler.'));
   }
-  const data=traces.map((t,i)=>traceData(t,state.start,state.end,60000,state.mode==='Stacked'?i:0));const samples=traces.reduce((sum,t)=>{const[a,b]=sampleRange(t.channel,state.start,state.end,t.offset);return sum+Math.max(0,b-a);},0);
+  if(state.zoomGeneration!==state.generation)state.zoom=null;
+  const plotRange=state.zoom||[state.start,state.end];
+  const budget=displayPointBudget($('plot').clientWidth);
+  const identity=traces.map(t=>[t.id,t.channelIndex,t.offset]);
+  const appearance=[$('dark').checked,$('unit').value,$('grid').checked];
+  const nextMainKey=JSON.stringify([identity,appearance,state.start,state.end,plotRange,budget,state.mode,state.generation,$('fixed').checked,$('ymin').value,$('ymax').value,$('wheel').checked]);
+  const samples=traces.reduce((sum,t)=>{const[a,b]=sampleRange(t.channel,state.start,state.end,t.offset);return sum+Math.max(0,b-a);},0);
   for(const id of ['csv','png','json'])$(id).disabled=!samples;
   for(const id of ['full','ten','prev','next','start','end','apply-window','range-start','range-end'])$(id).disabled=!traces.length;
   $('summary').textContent=traces.length?`${state.mode} · ${traces.length} trace(s) · ${Number(state.start.toFixed(6))}–${Number(state.end.toFixed(6))} s · ${$('unit').value||'unspecified units'}${samples?'':' · No samples in this window'}`:'Open an EDF recording or try the synthetic example. Select at least one recording to display it.';
-  $('plot').style.height=layoutFor(traces,measurement).height+'px';await Plotly.react('plot',data,layoutFor(traces,measurement),config());
+  const layout=layoutFor(traces,measurement,plotRange);$('plot').style.height=layout.height+'px';
+  if(mainKey!==nextMainKey){
+    const data=traces.map((t,i)=>traceData(t,...plotRange,budget,state.mode==='Stacked'?i:0));
+    await Plotly.react('plot',data,layout,config());mainKey=nextMainKey;
+  }else{await Plotly.relayout('plot',{shapes:layout.shapes,annotations:layout.annotations});}
   const p=$('plot');if(!p._ecgClick){p.on('plotly_click',event=>{if(!$('ruler').checked||!event.points?.length)return;const target=document.querySelector('input[name=target]:checked').value;$(target.toLowerCase()).value=event.points[0].x;document.querySelector(`input[name=target][value="${target==='A'?'B':'A'}"]`).checked=true;requestRender();});p._ecgClick=true;}
+  if(!p._ecgZoom){p.on('plotly_doubleclick',resetPlotZoom);p.on('plotly_relayout',event=>{
+    // Refine displayed samples when zooming; the selected/export window stays put.
+    const axis=Object.keys(event).find(key=>/^xaxis\d*\.range\[0\]$/.test(key))?.split('.')[0];
+    const reset=Object.keys(event).some(key=>/^xaxis\d*\.autorange$/.test(key)&&event[key]);
+    if(reset){if(state.zoom){state.zoom=null;state.generation++;requestRender();}return;}
+    if(!axis)return;
+    const a=Math.max(state.start,event[`${axis}.range[0]`]),b=Math.min(state.end,event[`${axis}.range[1]`]);
+    if(!Number.isFinite(a)||!Number.isFinite(b)||b<=a)return;
+    const previous=state.zoom||[state.start,state.end];
+    if(Math.abs(a-previous[0])<1e-9&&Math.abs(b-previous[1])<1e-9)return;
+    state.zoom=[a,b];state.zoomGeneration=state.generation;requestRender();
+  });p._ecgZoom=true;}
   if(traces.length){const[lower,upper]=bounds(traces);for(const id of ['range-start','range-end']){$(id).min=lower;$(id).max=upper;}$('prev').disabled=state.start<=lower+1e-9;$('next').disabled=state.end>=upper-1e-9;
     const bg=$('dark').checked?'#111820':'#fff',text=$('dark').checked?'#e5edf5':'#193743';
-    await Plotly.react('overview',traces.map(t=>traceData(t,lower,upper,5000,0,true)),{height:180,paper_bgcolor:bg,plot_bgcolor:bg,font:{color:text},margin:{l:65,r:20,t:10,b:45},showlegend:false,dragmode:'select',selectdirection:'h',xaxis:{...gridAxes([lower,upper]),title:{text:'Recording overview · comparison time (s)'}},yaxis:gridAxes(),shapes:[{type:'rect',x0:state.start,x1:state.end,y0:0,y1:1,yref:'paper',fillcolor:'#d8a34a',opacity:.2,line:{width:0}}],selections:[]},{responsive:true,displaylogo:false,scrollZoom:false,modeBarButtonsToRemove:['zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','lasso2d']});
+    const nextOverviewKey=JSON.stringify([identity,appearance]);
+    const nextOverviewWindow=JSON.stringify([state.start,state.end]);
+    const windowShape={type:'rect',x0:state.start,x1:state.end,y0:0,y1:1,yref:'paper',fillcolor:'#d8a34a',opacity:.2,line:{width:0}};
+    if(overviewKey!==nextOverviewKey){await Plotly.react('overview',traces.map(t=>traceData(t,lower,upper,5000,0,true)),{height:180,paper_bgcolor:bg,plot_bgcolor:bg,font:{color:text},margin:{l:65,r:20,t:10,b:45},showlegend:false,dragmode:'select',selectdirection:'h',xaxis:{...gridAxes([lower,upper]),title:{text:'Recording overview · comparison time (s)'}},yaxis:gridAxes(),shapes:[windowShape],selections:[]},{responsive:true,displaylogo:false,scrollZoom:false,modeBarButtonsToRemove:['zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','lasso2d']});overviewKey=nextOverviewKey;overviewWindow=nextOverviewWindow;
+    }else if(overviewWindow!==nextOverviewWindow){await Plotly.relayout('overview',{shapes:[windowShape],selections:[]});overviewWindow=nextOverviewWindow;}
     const o=$('overview');if(!o._ecgSelect){o.on('plotly_selected',event=>{const range=event?.range?.x;if(range&&range[1]>range[0])setWindow(range[0],range[1]);});o._ecgSelect=true;}
-  }else{Plotly.purge('overview');delete $('overview')._ecgSelect;}
-  const details=$('details');details.replaceChildren();for(const t of candidates){const c=t.channel,[a,b]=sampleRange(c,state.start,state.end,t.offset);let min=Infinity,max=-Infinity;for(let i=a;i<b;i++){min=Math.min(min,c.samples[i]);max=Math.max(max,c.samples[i]);}
+  }else{Plotly.purge('overview');delete $('overview')._ecgSelect;overviewKey='';overviewWindow='';}
+  const nextDetailsKey=JSON.stringify([candidates.map(t=>[t.id,t.channelIndex,t.offset]),state.start,state.end]);
+  if(!$('details').parentElement.open||detailsKey===nextDetailsKey)return;
+  const details=$('details');details.replaceChildren();detailsKey=nextDetailsKey;for(const t of candidates){const c=t.channel,[a,b]=sampleRange(c,state.start,state.end,t.offset);let min=Infinity,max=-Infinity;for(let i=a;i<b;i++){min=Math.min(min,c.samples[i]);max=Math.max(max,c.samples[i]);}
     const section=make('section');section.append(make('h3',`${t.filename} · ${c.label}`));section.append(make('p',`${c.sampleRate} Hz · ${c.samples.length.toLocaleString()} samples · ${c.duration} s · ${c.unit||'unspecified units'} · shift ${t.offset} s`));section.append(make('p',`Start: ${t.recording.start} (timezone unspecified) · Declared filter: ${c.prefilter||'unspecified'}`));
     if(b>a)section.append(make('p',`Window: ${b-a} samples · min ${min.toPrecision(7)} · max ${max.toPrecision(7)} · peak-to-peak ${(max-min).toPrecision(7)} ${c.unit||''} (stored units)`));for(const w of t.recording.warnings)section.append(make('p',w,'muted'));
     if(t.recording.annotations.length){const table=make('table');const head=make('tr');for(const text of ['Original onset (s)','Duration (s)','Annotation'])head.append(make('th',text));table.append(head);for(const note of t.recording.annotations){const row=make('tr');for(const value of [note.onset_s,note.duration_s??'',note.description])row.append(make('td',value));table.append(row);}section.append(table);}details.append(section);
@@ -92,6 +124,7 @@ async function render(){for(const id of ['csv','png','json'])$(id).disabled=true
 }
 function download(blob,filename){const url=URL.createObjectURL(blob),a=make('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
 function metadata(){return {viewer_version:version,appearance:$('dark').checked?'dark':'light',view:state.mode,window_start_s_inclusive:state.start,window_end_s_exclusive:state.end,export_unit:$('unit').value,time_ruler:ruler(),time_reference:"Each file's first sample is zero, plus its explicit time shift",additional_processing:'None; no resampling, filtering or amplitude offsets',traces:compatible().map(t=>({trace_id:t.id,filename:t.filename,channel:t.channel.label,source_sha256:t.digest,sampling_hz:t.channel.sampleRate,stored_unit:t.channel.unit,time_shift_s:t.offset,declared_prefilter:t.channel.prefilter,recording_start_timezone_unspecified:t.recording.start,first_record_onset_s:t.recording.firstRecordOnset,synthetic:t.digest===null}))};}
+$('details').parentElement.ontoggle=()=>{if($('details').parentElement.open)requestRender();};
 $('files').onchange=e=>void addFiles(e.target.files);
 $('drop').ondragover=e=>{e.preventDefault();$('drop').classList.add('over');};$('drop').ondragleave=()=>$('drop').classList.remove('over');$('drop').ondrop=e=>{e.preventDefault();$('drop').classList.remove('over');void addFiles(e.dataTransfer.files);};
 window.addEventListener('dragover',e=>e.preventDefault());window.addEventListener('drop',e=>e.preventDefault());$('demo').onclick=demo;

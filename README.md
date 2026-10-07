@@ -41,7 +41,11 @@ Recognised voltage units convert between µV/uV, mV and V. Other units stay as s
 incompatible traces are explicitly excluded from the comparison. No filtering,
 normalisation, baseline removal, interpolation or resampling is added.
 
-Long traces use chronological min/max envelopes for plots and PNGs. CSV exports
+Long traces use chronological min/max envelopes for plots and PNGs. On-screen
+density follows the plot width; temporary zoom refines the displayed original
+samples. Waveform arrays are cached, the overview is reused during navigation,
+and ruler updates move cursors without rebuilding waveforms. Measurements are
+calculated when their panel is opened. CSV exports
 retain all original samples at each file's own sampling rate. Ruler clicks snap to
 displayed original samples; use a narrow window for finer picking. PNG/CSV/JSON
 use the chosen window and checked files, regardless of temporary plot zoom or

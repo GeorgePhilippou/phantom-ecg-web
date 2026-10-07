@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {createWaveformCache,displayPointBudget} from '../display.mjs';
 import assert from 'node:assert/strict';
 import {readEDF,voltageFactor,sampleRange,envelopeIndices,fitWindow,intervalMetrics,csvRows} from '../edf.mjs';
 function fixture({plus=false,discontinuous=false,unknown=false}={}){
@@ -15,3 +16,25 @@ test('EDF+C annotations and unknown record count',()=>{const r=readEDF(fixture({
 test('reject truncated, discontinuous, invalid calibration and BDF',()=>{assert.throws(()=>readEDF(fixture().slice(0,-1)),/truncated/);assert.throws(()=>readEDF(fixture({plus:true,discontinuous:true})),/Discontinuous/);const bad=fixture();new Uint8Array(bad).fill(32,256+2*104,256+2*104+8);assert.throws(()=>readEDF(bad),/numeric/);assert.throws(()=>readEDF(new ArrayBuffer(256)),/supported/);});
 test('units, original shifted sample windows and CSV quoting',()=>{assert.equal(voltageFactor('µV','mV'),.001);assert.equal(voltageFactor('mV','µV'),1000);assert.throws(()=>voltageFactor('','mV'));const r=readEDF(fixture()),c=r.channels[0];assert.deepEqual(sampleRange(c,.6,1.1,.1),[2,4]);const rows=[...csvRows([{id:'a',filename:'a,"b.edf',channel:c,offset:.1}],.6,1.1,'mV')];assert.equal(rows.length,3);assert.ok(rows[1].includes('"a,""b.edf"'));assert.ok(rows[1].includes(',0.5,0.6,0.1,1'));});
 test('navigation, extrema and equal/reversed ruler points',()=>{assert.deepEqual(fitWindow(9,12,0,10),[7,10]);assert.deepEqual(fitWindow(-3,2,0,10),[0,5]);assert.equal(intervalMetrics(1,2).reciprocal_hz,1);assert.equal(intervalMetrics(2,1).interval_ms,1000);assert.equal(intervalMetrics(1,1).reciprocal_hz,null);assert.throws(()=>intervalMetrics(NaN,2));const values=new Float64Array(10000);values[415]=100;values[887]=-100;const indices=envelopeIndices(values,0,values.length,100);assert.ok(indices.includes(415)&&indices.includes(887));assert.equal(indices[0],0);assert.equal(indices.at(-1),9999);assert.ok(indices.every((x,i)=>i===0||x>indices[i-1]));});
+
+test('display cache preserves original shifted sample times and converted values',()=>{
+  const channel={samples:Float64Array.from([0,500,-1000,1500]),sampleRate:2,unit:'uV'};
+  const points=createWaveformCache();const value=points(channel,.5,2,.5,'mV',100);
+  assert.deepEqual(value.x,[.5,1,1.5]);assert.deepEqual(value.y,[0,.5,-1]);
+  assert.strictEqual(points(channel,.5,2,.5,'mV',100),value);
+  assert.deepEqual(points(channel,.5,2,.5,'uV',100).y,[0,500,-1000]);
+  assert.deepEqual(points(channel,1,2,0,'mV',100).x,[1,1.5]);
+  assert.deepEqual(Array.from(channel.samples),[0,500,-1000,1500]);
+});
+test('bounded display cache evicts old windows and preserves narrow spikes',()=>{
+  const samples=new Float64Array(10000);samples[4321]=123;samples[8765]=-75;
+  const channel={samples,sampleRate:1000,unit:'mV'},points=createWaveformCache(2);
+  const first=points(channel,0,10,0,'mV',2000);
+  assert.ok(first.y.includes(123));assert.ok(first.y.includes(-75));assert.ok(first.x.includes(4.321));
+  points(channel,0,1,0,'mV',2000);points(channel,1,2,0,'mV',2000);
+  assert.notStrictEqual(points(channel,0,10,0,'mV',2000),first);
+});
+test('display density scales with viewport but remains bounded',()=>{
+  assert.equal(displayPointBudget(320),2000);assert.equal(displayPointBudget(1000),4000);
+  assert.equal(displayPointBudget(10000),16000);
+});
