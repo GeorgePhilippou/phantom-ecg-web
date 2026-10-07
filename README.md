@@ -7,7 +7,7 @@ explore the interface without an experimental recording.
 ## Everyday use
 
 1. Drop one or several EDF files into the sidebar, or choose files.
-2. Use each recording's checkbox to show/hide it. Expand its controls to choose
+2. Use each recording's checkbox to show/hide it. Expand **Channel & time shift** to choose
    a channel or enter a positive/negative time shift in seconds.
 3. Choose Overlay or Stacked, and select an amplitude unit.
 4. Select a region by dragging horizontally in the overview, moving the start/end
