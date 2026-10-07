@@ -19,11 +19,7 @@ jobs:
       - run: node --test tests/core.test.mjs
       - run: node --check app.mjs
       - name: Prepare static website only
-        run: |
-          mkdir _site
-          cp index.html style.css app.mjs edf.mjs worker.mjs _site/
-          cp -R vendor _site/
-          touch _site/.nojekyll
+        run: node scripts/build.mjs
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
