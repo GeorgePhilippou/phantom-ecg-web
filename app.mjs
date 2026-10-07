@@ -25,7 +25,7 @@ function fileControls(){const root=$('file-controls');root.replaceChildren();
     checkbox.onclick=e=>e.stopPropagation();checkbox.onchange=()=>{f.visible=checkbox.checked;units();setWindow(state.start,state.end);};
     const channelLabel=make('label','Channel'),select=make('select');select.setAttribute('aria-label',`Channel for ${f.filename}`);f.recording.channels.forEach((c,i)=>select.add(new Option(`${c.label} (${c.unit||'unspecified'})`,i)));select.value=f.channelIndex;
     select.onchange=()=>{f.channelIndex=Number(select.value);units();setWindow(state.start,state.end);};channelLabel.append(select);section.append(channelLabel);
-    const offsetLabel=make('label','Time shift (s)'),input=make('input');input.type='number';input.step='0.1';input.value=f.offset;input.setAttribute('aria-label',`Time shift for ${f.filename}`);input.onchange=()=>{const value=input.valueAsNumber;if(!Number.isFinite(value)){input.value=f.offset;notice('Time shifts must be finite.');return;}f.offset=value;setWindow(state.start,state.end);};offsetLabel.append(input);section.append(offsetLabel);
+    const offsetLabel=make('label','Time shift (s)'),input=make('input');input.type='number';input.step='0.1';input.value=f.offset;input.setAttribute('aria-label',`Time shift for ${f.filename}`);input.oninput=()=>{const value=input.valueAsNumber;if(Number.isFinite(value)){f.offset=value;setWindow(state.start,state.end);}};input.onchange=()=>{const value=input.valueAsNumber;if(!Number.isFinite(value)){input.value=f.offset;notice('Time shifts must be finite.');return;}f.offset=value;setWindow(state.start,state.end);};offsetLabel.append(input);section.append(offsetLabel);
     const remove=make('button','Remove recording','wide');remove.onclick=()=>{state.files=state.files.filter(x=>x.id!==f.id);fileControls();units();setWindow(state.start,state.end);};section.append(remove);root.append(section);
   }
 }
@@ -65,8 +65,9 @@ async function render(){for(const id of ['csv','png','json'])$(id).disabled=true
   const candidates=visible(),traces=compatible(),excluded=candidates.filter(t=>!traces.some(x=>x.id===t.id));const messages=[...state.errors,...excluded.map(t=>`${t.filename}: incompatible amplitude units (${t.channel.unit||'unspecified'}); excluded from this comparison.`)];
   $('errors').replaceChildren(...messages.map(m=>make('p',m)));
   const validScale=!$('fixed').checked||Number.isFinite($('ymin').valueAsNumber)&&Number.isFinite($('ymax').valueAsNumber)&&$('ymax').valueAsNumber>$('ymin').valueAsNumber;
-  if(!validScale){notice('Maximum amplitude must be finite and greater than minimum.');return;}
-  let measurement;try{measurement=ruler();}catch(error){notice(error.message);return;}
+  if(!validScale){state.controlsInvalid=true;notice('Maximum amplitude must be finite and greater than minimum.');return;}
+  let measurement;try{measurement=ruler();}catch(error){state.controlsInvalid=true;notice(error.message);return;}
+  if(state.controlsInvalid){notice('');state.controlsInvalid=false;}
   $('measurement').hidden=!measurement;
   if(measurement){const frequency=measurement.reciprocal_hz===null?'undefined (A = B)':`${Number(measurement.reciprocal_hz.toPrecision(7))} Hz`;
     $('measurement').textContent=`Time ruler · A ${measurement.a_s.toFixed(6)} s · B ${measurement.b_s.toFixed(6)} s · Δt ${measurement.interval_s.toFixed(6)} s (${measurement.interval_ms.toFixed(3)} ms) · 1/Δt ${frequency}`;
